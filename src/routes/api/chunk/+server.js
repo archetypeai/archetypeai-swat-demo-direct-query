@@ -2,7 +2,10 @@ import { json } from '@sveltejs/kit';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 
-const CSV_PATH = resolve('data/swat_raw_labeled.csv');
+// Held-out playback stream: a contiguous slice (normal lead-in → transition →
+// early attack) that shares NO timestamps with the n-shot KNN library. See
+// scripts/generate_labels.py (the split + leakage assert).
+const CSV_PATH = resolve('data/swat_playback.csv');
 
 // One-time scan: keep the raw buffer + an index of line-start byte offsets.
 // Per-chunk requests slice the buffer without re-reading disk or re-parsing.

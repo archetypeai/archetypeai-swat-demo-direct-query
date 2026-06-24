@@ -104,7 +104,7 @@ function majorityLabel(rows, labelIdx, startRow, windowSize) {
 	return attack > normal ? 'ATTACK' : 'NORMAL';
 }
 
-async function queryOmega(endpoint, apiKey, channelFirstWindow) {
+async function queryOmegaChannel(endpoint, apiKey, channel) {
 	const res = await fetch(endpoint, {
 		method: 'POST',
 		headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
@@ -114,16 +114,22 @@ async function queryOmega(endpoint, apiKey, channelFirstWindow) {
 			// Windows are pre-normalized with the global scaler before this call,
 			// so don't let Omega re-normalize per-window.
 			normalize_input: false,
-			events: [{ type: 'data.numeric_array', event_data: { contents: channelFirstWindow } }]
+			events: [{ type: 'data.numeric_array', event_data: { contents: [channel] } }]
 		})
 	});
 	if (!res.ok) throw new Error(`/query ${res.status}: ${(await res.text()).slice(0, 300)}`);
 	const data = await res.json();
-	const arr = data.response?.response;
-	if (!Array.isArray(arr) || !Array.isArray(arr[0])) {
+	const vec = data.response?.response;
+	if (!Array.isArray(vec) || typeof vec[0] !== 'number') {
 		throw new Error('bad shape');
 	}
-	return arr;
+	return vec; // flat 768
+}
+
+// Per-channel fan-out (Omega skill convention), concatenated in channel order —
+// matches how the KNN library is built so projections line up.
+async function queryOmega(endpoint, apiKey, channelFirstWindow) {
+	return Promise.all(channelFirstWindow.map((ch) => queryOmegaChannel(endpoint, apiKey, ch)));
 }
 
 function flatten2D(arr) {

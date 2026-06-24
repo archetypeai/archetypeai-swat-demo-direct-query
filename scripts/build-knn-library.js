@@ -103,7 +103,8 @@ function extractWindow(rows, headerIdx, startRow, windowSize) {
 	return out;
 }
 
-async function queryOmega(endpoint, apiKey, channelFirstWindow) {
+// One single-channel /query (flat 768-d response). Retried by the caller.
+async function queryOmegaChannel(endpoint, apiKey, channel) {
 	const res = await fetch(endpoint, {
 		method: 'POST',
 		headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
@@ -114,12 +115,7 @@ async function queryOmega(endpoint, apiKey, channelFirstWindow) {
 			// Omega should NOT normalize per-window — that would erase the
 			// cross-window amplitude signal we just preserved.
 			normalize_input: false,
-			events: [
-				{
-					type: 'data.numeric_array',
-					event_data: { contents: channelFirstWindow }
-				}
-			]
+			events: [{ type: 'data.numeric_array', event_data: { contents: [channel] } }]
 		})
 	});
 	if (!res.ok) {
@@ -127,12 +123,20 @@ async function queryOmega(endpoint, apiKey, channelFirstWindow) {
 		throw new Error(`/query failed: ${res.status} ${err.slice(0, 300)}`);
 	}
 	const data = await res.json();
-	// Shape: { response: { response: [num_channels x 768] } }  per probe.
-	const arr = data.response?.response;
-	if (!Array.isArray(arr) || !Array.isArray(arr[0])) {
+	const vec = data.response?.response;
+	if (!Array.isArray(vec) || typeof vec[0] !== 'number') {
 		throw new Error(`unexpected response shape: ${JSON.stringify(data).slice(0, 300)}`);
 	}
-	return arr; // [num_channels x 768]
+	return vec; // flat 768
+}
+
+// Per the Omega skill: embed each channel with its own /query (fanned out in
+// parallel), then concatenate in channel order into the joint feature vector.
+async function queryOmega(endpoint, apiKey, channelFirstWindow) {
+	const perChannel = await Promise.all(
+		channelFirstWindow.map((channel) => queryOmegaChannel(endpoint, apiKey, channel))
+	);
+	return perChannel; // [num_channels x 768]
 }
 
 function flatten2D(arr) {
@@ -165,8 +169,8 @@ async function buildForStage(stageId, csvSets, headerIdxByLabel, endpoint, apiKe
 					break;
 				} catch (err) {
 					attempt += 1;
-					if (attempt >= 3) throw err;
-					await new Promise((r) => setTimeout(r, 500 * attempt));
+					if (attempt >= 6) throw err;
+					await new Promise((r) => setTimeout(r, 1000 * attempt));
 				}
 			}
 		}

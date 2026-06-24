@@ -134,29 +134,34 @@ async function postQuery(body, timeoutMs = OMEGA_TIMEOUT_MS) {
 // the [num_columns x 768] embedding matrix, flattened to a single Float32Array
 // for KNN distance comparisons against the library.
 export async function embedWindow(channelFirstWindow) {
-	const data = await postQuery({
-		query: '',
-		model: OMEGA_MODEL,
-		// Pre-normalized at the call site via applyScaler(); Omega should NOT
-		// re-normalize per-window or it would erase cross-window amplitude.
-		normalize_input: false,
-		events: [
-			{
-				type: 'data.numeric_array',
-				event_data: { contents: channelFirstWindow }
+	// Per the Omega skill: one /query per channel, fanned out in parallel. Each
+	// single-channel request returns a flat 768-d vector; concatenate them in
+	// channel order into the joint multi-channel feature used for KNN. (The
+	// per-channel and all-in-one conventions yield slightly different vectors,
+	// so the KNN library is built the same per-channel way — keep them in sync.)
+	const perChannel = await Promise.all(
+		channelFirstWindow.map(async (channel) => {
+			const data = await postQuery({
+				query: '',
+				model: OMEGA_MODEL,
+				// Pre-normalized at the call site via applyScaler(); Omega should NOT
+				// re-normalize per-window or it would erase cross-window amplitude.
+				normalize_input: false,
+				events: [{ type: 'data.numeric_array', event_data: { contents: [channel] } }]
+			});
+			const vec = data.response?.response;
+			if (!Array.isArray(vec) || typeof vec[0] !== 'number') {
+				throw new Error(`unexpected Omega response shape: ${JSON.stringify(data).slice(0, 200)}`);
 			}
-		]
-	});
-	const arr = data.response?.response;
-	if (!Array.isArray(arr) || !Array.isArray(arr[0])) {
-		throw new Error(`unexpected Omega response shape: ${JSON.stringify(data).slice(0, 200)}`);
-	}
-	const numChannels = arr.length;
-	const dim = arr[0].length;
+			return vec;
+		})
+	);
+	const numChannels = perChannel.length;
+	const dim = perChannel[0].length;
 	const out = new Float32Array(numChannels * dim);
 	for (let c = 0; c < numChannels; c++) {
 		for (let d = 0; d < dim; d++) {
-			out[c * dim + d] = arr[c][d];
+			out[c * dim + d] = perChannel[c][d];
 		}
 	}
 	return out;
@@ -267,12 +272,12 @@ export async function queryNewton({ query, systemPrompt = '', maxNewTokens = 102
 			},
 			body: JSON.stringify({
 				query,
-				system_prompt: systemPrompt,
+				// C 2.6 honors `instruction_prompt`; the legacy `system_prompt`
+				// field is inert on this checkpoint, so we send only the former.
 				instruction_prompt: systemPrompt,
 				file_ids: [],
-				model: 'Newton::c2_5_8b_260413b723a9ab',
-				max_new_tokens: maxNewTokens,
-				sanitize: false
+				model: 'Newton::c2_6_8b_fp8_260424d7a55d5e',
+				max_new_tokens: maxNewTokens
 			}),
 			signal: controller.signal
 		});
