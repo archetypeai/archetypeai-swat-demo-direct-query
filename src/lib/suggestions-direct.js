@@ -174,12 +174,11 @@ export async function fetchSuggestionsDirect({
 	const url = endpoint.replace(/\/$/, '') + '/v0.5/query';
 	const body = {
 		query: buildQuery(stageStatuses, stageSensors, baselines),
-		system_prompt: SYSTEM_PROMPT,
+		// C 2.6 honors `instruction_prompt`; `system_prompt` is inert on it.
 		instruction_prompt: SYSTEM_PROMPT,
 		file_ids: [],
-		model: 'Newton::c2_5_8b_260413b723a9ab',
-		max_new_tokens: 700,
-		sanitize: false
+		model: 'Newton::c2_6_8b_fp8_260424d7a55d5e',
+		max_new_tokens: 700
 	};
 
 	const res = await fetch(url, {

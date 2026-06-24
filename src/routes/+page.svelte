@@ -45,11 +45,10 @@
 	const STEP_SIZE = 128;
 	const CHUNK_SIZE = 10000;
 	const REPLAY_SPEED = 10; // tick every 100ms, advance 1 row → 10× real time on 1Hz data
-	// Jump into the attack-dense region (rows 1,384,098 → ~1,390,098 contain
-	// ~50% attack-labeled rows). In this prepared dataset all 54,621 attack rows
-	// are packed into the last ~4% of the file (1.387M+); anywhere else is all
-	// normal, so starting earlier means the demo never sees a real attack.
-	const INITIAL_OFFSET = 1384000;
+	// Playback streams the dedicated held-out file (data/swat_playback.csv):
+	// a normal lead-in → the normal→attack transition → early attack, sharing no
+	// timestamps with the n-shot KNN library. So we start at row 0 of that file.
+	const INITIAL_OFFSET = 0;
 	// Live cursor trail length per stage (oldest entries drop off).
 	const TRAIL_LENGTH = 8;
 

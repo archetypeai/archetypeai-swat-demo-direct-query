@@ -31,6 +31,16 @@ N_SHOT_PER_CLASS = 2000
 QUICK_TEST_ROWS = 200
 RANDOM_SEED = 42
 
+# Held-out playback split (leakage-free). The single attack block is split into
+# two disjoint contiguous ranges: the EARLY part — normal lead-in + the
+# normal→attack transition + early attack — is reserved for the demo's PLAYBACK
+# stream, while the KNN library's attack n-shot examples are drawn from a LATER
+# slice of the same block, separated by a gap. The played transition is thus
+# never embedded into the library. See swat_playback.csv + the leakage assert.
+PLAYBACK_NORMAL_LEAD = 3000  # normal rows before the attack starts (sets up the transition)
+PLAYBACK_ATTACK_ROWS = 30000  # attack rows shown during playback, after the transition
+NSHOT_ATTACK_GAP = 2000  # buffer between the playback window and the attack n-shot slice
+
 CLASS_NORMAL = "normal"
 CLASS_ATTACK = "attack"
 
@@ -126,17 +136,32 @@ def main():
     if run_start is not None and current_run_len > 0:
         attack_runs.append((run_start, current_run_len))
 
-    # Sort by length, take from longest attack runs
+    # Take the longest attack run as the attack block, then carve a held-out
+    # split out of it (see the constants above): the EARLY part is the playback
+    # window, the attack n-shot examples come from a LATER, gapped slice.
     attack_runs.sort(key=lambda x: x[1], reverse=True)
-    attack_nshot_rows = []
-    for start, length in attack_runs:
-        if len(attack_nshot_rows) >= N_SHOT_PER_CLASS:
-            break
-        needed = N_SHOT_PER_CLASS - len(attack_nshot_rows)
-        take = min(needed, length)
-        attack_nshot_rows.extend(all_rows[start:start + take])
+    attack_start, attack_len = attack_runs[0]
+    need = PLAYBACK_ATTACK_ROWS + NSHOT_ATTACK_GAP + N_SHOT_PER_CLASS
+    if attack_len < need:
+        raise SystemExit(
+            f"Attack block too short ({attack_len} rows) for a held-out split (need {need})"
+        )
 
-    print(f"  Attack n-shot: {len(attack_nshot_rows)} rows from {len(attack_runs)} attack regions")
+    # Playback window: normal lead-in + the transition + early attack.
+    playback_start = max(0, attack_start - PLAYBACK_NORMAL_LEAD)
+    playback_end = attack_start + PLAYBACK_ATTACK_ROWS  # exclusive
+    playback_rows = all_rows[playback_start:playback_end]
+
+    # Attack n-shot: a later slice of the same attack block, after the playback
+    # window plus a gap — disjoint from playback by construction.
+    attack_nshot_start = playback_end + NSHOT_ATTACK_GAP
+    attack_nshot_rows = all_rows[attack_nshot_start : attack_nshot_start + N_SHOT_PER_CLASS]
+
+    print(f"  Attack block: index {attack_start}..{attack_start + attack_len} (len {attack_len})")
+    print(
+        f"  Attack n-shot: {len(attack_nshot_rows)} rows from index {attack_nshot_start} "
+        f"(held out, after the playback window)"
+    )
 
     # Collect n-shot timestamps for exclusion
     nshot_timestamps = set()
@@ -157,6 +182,30 @@ def main():
             for r in rows:
                 writer.writerow([r["timestamp"]] + [r[c] for c in sensor_cols])
         print(f"  {os.path.basename(path)}: {len(rows)} rows")
+    print()
+
+    # --- Held-out playback file (contiguous, WITH label column) ---
+    print("[2b/4] Writing held-out playback file...")
+    playback_path = os.path.join(DATA_DIR, "swat_playback.csv")
+    playback_header = ["timestamp"] + sensor_cols + ["label"]
+    with open(playback_path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(playback_header)
+        for r in playback_rows:
+            writer.writerow([r["timestamp"]] + [r[c] for c in sensor_cols] + [r["label"]])
+    n_pb_normal = sum(1 for r in playback_rows if r["label"] == CLASS_NORMAL)
+    n_pb_attack = sum(1 for r in playback_rows if r["label"] == CLASS_ATTACK)
+    print(
+        f"  swat_playback.csv: {len(playback_rows)} rows "
+        f"({n_pb_normal} normal + {n_pb_attack} attack)"
+    )
+
+    # Leakage check: the played rows must share no timestamp with the n-shot library.
+    playback_ts = {int(r["timestamp"]) for r in playback_rows}
+    leak = playback_ts & nshot_timestamps
+    if leak:
+        raise SystemExit(f"LEAKAGE: {len(leak)} playback rows are also in the n-shot library")
+    print("  ✓ leakage check passed: playback ∩ n-shot = 0 rows")
     print()
 
     # --- Quick test: contiguous block that includes some attack rows ---
