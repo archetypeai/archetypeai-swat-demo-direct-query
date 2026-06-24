@@ -50,7 +50,7 @@
 	// (~row 19,000) so the demo quickly reaches the attack windows the model
 	// actually detects — see README "What the held-out numbers show". Set to 0 to
 	// replay the full normal lead-in → transition → early attack from the top.
-	const INITIAL_OFFSET = 18700;
+	const INITIAL_OFFSET = 17000;
 	// Live cursor trail length per stage (oldest entries drop off).
 	const TRAIL_LENGTH = 8;
 

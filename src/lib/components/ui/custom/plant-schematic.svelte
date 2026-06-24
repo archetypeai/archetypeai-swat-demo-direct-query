@@ -14,9 +14,8 @@
 		const s = stageStatuses[stageId] ?? 'idle';
 		if (s === 'attack') return 'text-atai-critical';
 		if (s === 'normal') return 'text-atai-good';
-		if (s === 'ready') return 'text-atai-good';
 		if (s === 'pending' || s === 'warmup') return 'text-atai-warning';
-		// standby, unmonitored, idle — all muted
+		// ready (awaiting first classification), standby, unmonitored, idle — all muted
 		return 'text-muted-foreground';
 	}
 
