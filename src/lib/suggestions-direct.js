@@ -178,7 +178,7 @@ export async function fetchSuggestionsDirect({
 		instruction_prompt: SYSTEM_PROMPT,
 		file_ids: [],
 		model: 'Newton::c2_6_8b_fp8_260424d7a55d5e',
-		max_new_tokens: 700
+		max_new_tokens: 1500
 	};
 
 	const res = await fetch(url, {

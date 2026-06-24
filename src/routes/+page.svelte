@@ -45,10 +45,12 @@
 	const STEP_SIZE = 128;
 	const CHUNK_SIZE = 10000;
 	const REPLAY_SPEED = 10; // tick every 100ms, advance 1 row → 10× real time on 1Hz data
-	// Playback streams the dedicated held-out file (data/swat_playback.csv):
-	// a normal lead-in → the normal→attack transition → early attack, sharing no
-	// timestamps with the n-shot KNN library. So we start at row 0 of that file.
-	const INITIAL_OFFSET = 0;
+	// Playback streams the dedicated held-out file (data/swat_playback.csv), which
+	// shares no timestamps with the n-shot KNN library. We start partway in
+	// (~row 19,000) so the demo quickly reaches the attack windows the model
+	// actually detects — see README "What the held-out numbers show". Set to 0 to
+	// replay the full normal lead-in → transition → early attack from the top.
+	const INITIAL_OFFSET = 17000;
 	// Live cursor trail length per stage (oldest entries drop off).
 	const TRAIL_LENGTH = 8;
 
@@ -375,7 +377,7 @@
 		/>
 	</div>
 
-	<main id="main-content" class="grid flex-1 grid-cols-[3fr_1fr] gap-4 p-4" style="min-height: calc(100vh - 140px);">
+	<main id="main-content" class="grid min-h-0 grid-cols-[3fr_1fr] gap-4 overflow-hidden p-4" style="height: calc(100vh - 140px);">
 		<h1 class="sr-only">SWaT per-stage anomaly dashboard (Direct Query)</h1>
 
 		<div class="flex min-h-0 flex-col gap-3 overflow-hidden">

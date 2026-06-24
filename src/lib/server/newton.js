@@ -130,17 +130,42 @@ async function postQuery(body, timeoutMs = OMEGA_TIMEOUT_MS) {
 	}
 }
 
-// Send a [num_columns x window_size] channel-first array to Omega and return
-// the [num_columns x 768] embedding matrix, flattened to a single Float32Array
-// for KNN distance comparisons against the library.
-export async function embedWindow(channelFirstWindow) {
-	// Per the Omega skill: one /query per channel, fanned out in parallel. Each
-	// single-channel request returns a flat 768-d vector; concatenate them in
-	// channel order into the joint multi-channel feature used for KNN. (The
-	// per-channel and all-in-one conventions yield slightly different vectors,
-	// so the KNN library is built the same per-channel way — keep them in sync.)
-	const perChannel = await Promise.all(
-		channelFirstWindow.map(async (channel) => {
+// ──────────────────────────────────────────────────────────────────────
+// Bounded per-channel fan-out (matches the Omega skill's thread-pool / `embed()`
+// pattern). We keep one /query per channel, but cap how many run at once so a
+// window's fan-out (e.g. 40 channels across 6 stages) doesn't overrun a
+// capacity-limited GPQ node. Each per-channel call also retries transient
+// failures (504 / timeout) instead of dropping the whole stage.
+// ──────────────────────────────────────────────────────────────────────
+
+const OMEGA_MAX_CONCURRENCY = 6;
+const OMEGA_RETRIES = 3;
+
+let omegaInFlight = 0;
+const omegaQueue = [];
+function withOmegaSlot(fn) {
+	return new Promise((resolve, reject) => {
+		const run = () => {
+			omegaInFlight++;
+			Promise.resolve()
+				.then(fn)
+				.then(resolve, reject)
+				.finally(() => {
+					omegaInFlight--;
+					const next = omegaQueue.shift();
+					if (next) next();
+				});
+		};
+		if (omegaInFlight < OMEGA_MAX_CONCURRENCY) run();
+		else omegaQueue.push(run);
+	});
+}
+
+// Embed a single channel (flat 768-d vector), retrying transient failures.
+async function embedChannel(channel) {
+	let lastErr;
+	for (let attempt = 0; attempt < OMEGA_RETRIES; attempt++) {
+		try {
 			const data = await postQuery({
 				query: '',
 				model: OMEGA_MODEL,
@@ -154,7 +179,26 @@ export async function embedWindow(channelFirstWindow) {
 				throw new Error(`unexpected Omega response shape: ${JSON.stringify(data).slice(0, 200)}`);
 			}
 			return vec;
-		})
+		} catch (err) {
+			lastErr = err;
+			if (attempt < OMEGA_RETRIES - 1) {
+				await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+			}
+		}
+	}
+	throw lastErr;
+}
+
+// Send a [num_columns x window_size] channel-first array to Omega and return
+// the [num_columns x 768] embedding matrix, flattened to a single Float32Array
+// for KNN distance comparisons against the library.
+export async function embedWindow(channelFirstWindow) {
+	// Per the Omega skill: one /query per channel. The calls fan out through a
+	// shared bounded pool (OMEGA_MAX_CONCURRENCY) so all stages in a window share
+	// the same in-flight cap; each is retried on transient failure. Concatenate
+	// the per-channel 768-d vectors in channel order into the joint KNN feature.
+	const perChannel = await Promise.all(
+		channelFirstWindow.map((channel) => withOmegaSlot(() => embedChannel(channel)))
 	);
 	const numChannels = perChannel.length;
 	const dim = perChannel[0].length;
