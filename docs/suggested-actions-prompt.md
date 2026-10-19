@@ -7,7 +7,7 @@ Use this as a template for similar "reason over structured state" use cases in o
 ## Endpoint
 
 ```
-POST {ATAI_API_ENDPOINT}/v0.5/query
+POST {ATAI_API_ENDPOINT}/api/lens/query
 Authorization: Bearer <API_KEY>
 Content-Type: application/json
 ```

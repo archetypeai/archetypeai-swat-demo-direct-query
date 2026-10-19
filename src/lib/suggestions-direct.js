@@ -171,7 +171,7 @@ export async function fetchSuggestionsDirect({
 		return { suggestions: [], source: 'newton', signature };
 	}
 
-	const url = endpoint.replace(/\/$/, '') + '/v0.5/query';
+	const url = endpoint.replace(/\/$/, '') + '/api/lens/query';
 	const body = {
 		query: buildQuery(stageStatuses, stageSensors, baselines),
 		// C 2.6 honors `instruction_prompt`; `system_prompt` is inert on it.

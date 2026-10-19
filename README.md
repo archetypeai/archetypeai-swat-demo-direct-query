@@ -41,7 +41,7 @@ node scripts/build-scaler.js
 
 # One-time: build the n-shot embedding library used by KNN.
 node scripts/build-knn-library.js --step=20
-# Embeds one /query per channel (the Omega skill's convention): ~7,500 calls
+# Embeds one /api/lens/query per channel (the Omega skill's convention): ~7,500 calls
 # (1,128 windows × their channels), ~25-35 min. Retries transient failures.
 # Output: data/knn-library.json (~115 MB, gitignored — rebuild locally).
 
@@ -65,25 +65,25 @@ Three flows: **build** (offline, one-time), **classify** (per playback window), 
 
 1. Read `swat_normal.csv` + `swat_attack.csv` (4,000 rows total per channel).
 2. Compute per-channel mean and standard deviation across the combined pool.
-3. Save to `data/scaler.json`. Used by every subsequent call to `/query` so all windows share a common reference frame.
+3. Save to `data/scaler.json`. Used by every subsequent call to `/api/lens/query` so all windows share a common reference frame.
 
 **Build phase (offline, one-time, `node scripts/build-knn-library.js --step=20`):**
 
 1. Read `swat_normal.csv` (2,000 rows) and `swat_attack.csv` (2,000 rows).
 2. Slide 128-row windows across each file with `step=20` (overlapping → 94 windows per class per stage, 188 per stage total).
-3. For each window: apply the global scaler `(x − mean) / std` per channel, then embed it **one `/query` per channel** (`model: OmegaEncoder, normalize_input: false`, fanned out in parallel) → concatenate the per-channel 768-d vectors into one `[num_channels × 768]` vector → tag it `NORMAL` or `ATTACK` based on which file it came from.
+3. For each window: apply the global scaler `(x − mean) / std` per channel, then embed it **one `/api/lens/query` per channel** (`model: OmegaEncoder, normalize_input: false`, fanned out in parallel) → concatenate the per-channel 768-d vectors into one `[num_channels × 768]` vector → tag it `NORMAL` or `ATTACK` based on which file it came from.
 4. Save all of these as `data/knn-library.json` (gitignored — exceeds GitHub's 100 MB cap; rebuilds in ~20 min).
 
 **Runtime (per playback window, `/api/classify`):**
 
 1. Take the 128 rows under the playhead.
-2. Apply the same global scaler, then embed one `/query` per channel (`model: OmegaEncoder, normalize_input: false`) and concatenate → the joint embedding for the live window.
+2. Apply the same global scaler, then embed one `/api/lens/query` per channel (`model: OmegaEncoder, normalize_input: false`) and concatenate → the joint embedding for the live window.
 3. Compute Euclidean distance from this embedding to every embedding in the library.
 4. Pick the 3 closest. Majority vote of their labels → predicted class.
 
 KNN doesn't "train" in the way a neural net does — the library *is* the model. The build phase just embeds the n-shot examples once and stores them with their labels; every runtime prediction is a distance lookup against that stored set.
 
-> **Normalization matters more than you'd expect.** Calling `/query` with `normalize_input: true` makes Omega z-score each window in isolation, which erases cross-window amplitude signal — two windows where `LIT401` reads 574 vs 950 look identical to the encoder afterwards. Pre-normalizing with a global per-channel scaler and passing `normalize_input: false` preserves the relative magnitudes. This single change took library LOO accuracy from 47–89% per stage to **57–100%**: P2/P4/P5 hit 100%, P1/P3 hit 93%, P6 (only 2 sensors, mostly idle) is the lone laggard at 57%. This is the downstream pattern the official [`atai-newton-omega-model`](https://github.com/archetypeai/agent-skills/tree/main/skills/atai-newton-omega-model) skill prescribes: fit one per-channel scaler on the training pool and call `/query` with `normalize_input=false`.
+> **Normalization matters more than you'd expect.** Calling `/api/lens/query` with `normalize_input: true` makes Omega z-score each window in isolation, which erases cross-window amplitude signal — two windows where `LIT401` reads 574 vs 950 look identical to the encoder afterwards. Pre-normalizing with a global per-channel scaler and passing `normalize_input: false` preserves the relative magnitudes. This single change took library LOO accuracy from 47–89% per stage to **57–100%**: P2/P4/P5 hit 100%, P1/P3 hit 93%, P6 (only 2 sensors, mostly idle) is the lone laggard at 57%. This is the downstream pattern the official [`atai-newton-omega-model`](https://github.com/archetypeai/agent-skills/tree/main/skills/atai-newton-omega-model) skill prescribes: fit one per-channel scaler on the training pool and call `/api/lens/query` with `normalize_input=false`.
 
 > **Step size also matters.** The very first build used `step=128` (non-overlapping → 15 windows per class) and gave LOO of 30–63%. Bumping to `step=20` (94 windows per class) lifted that to 47–89%. Together with global normalization, we now sit at 57–100%.
 
@@ -96,7 +96,7 @@ scripts/build-knn-library.js
    ├── read data/swat_attack.csv (2,000 rows from attack periods)
    ├── for each stage (P1..P6):
    │     for each window (128 rows, step=20):
-   │         for each channel:  POST /v0.5/query { model: OmegaEncoder, events: [data.numeric_array (ONE channel)] }   (parallel)
+   │         for each channel:  POST /api/lens/query { model: OmegaEncoder, events: [data.numeric_array (ONE channel)] }   (parallel)
    │         ← flat 768-d vector per channel
    │         concat in channel order → [num_channels × 768] vector, label NORMAL or ATTACK
    │
@@ -109,7 +109,7 @@ Per-stage library: 94 NORMAL + 94 ATTACK embeddings (step=20). Replaces the lens
 ### Phase 2 — Classify (every 128 rows during playback)
 
 ```
-Browser tick loop                  SvelteKit /api/classify        Newton /query
+Browser tick loop                  SvelteKit /api/classify        Newton /api/lens/query
    │                                       │                            │
    │  every STEP_SIZE rows (128):          │                            │
    │  POST /api/classify { rows: [...] }   │                            │
