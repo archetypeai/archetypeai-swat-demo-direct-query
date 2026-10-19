@@ -97,7 +97,7 @@ def make_random_window(channels: int, window: int, seed: int = 42) -> list[list[
 def post_query(
     endpoint: str, api_key: str, model: str, contents: list[list[float]]
 ) -> tuple[int, dict[str, Any], float]:
-    url = endpoint.rstrip("/") + "/v0.5/query"
+    url = endpoint.rstrip("/") + "/api/lens/query"
     body = {
         "query": "",
         "model": model,
