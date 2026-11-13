@@ -212,6 +212,15 @@ Why not t-SNE: t-SNE has no `transform()` for new points by construction — add
 
 The two versions are basically equivalent at steady state; Direct Query trades the lens's batching + buffered streaming for stateless simplicity and exposed embeddings.
 
+## Licence
+
+The code is under the [Apache License 2.0](LICENSE). That licence doesn't cover:
+
+- the SWaT CSVs in `data/` (and `data/scaler.json`, computed from them). SWaT was created by iTrust, SUTD, which distributes it on request: see [Data](#data).
+- the PP Neue Montreal fonts in `static/fonts/`, a typeface from the Pangram Pangram foundry under that foundry's own licence.
+
+The files in `.claude/` carry their own MIT licence ([`.claude/LICENSE`](.claude/LICENSE)).
+
 ## Data
 
 ### Attribution
